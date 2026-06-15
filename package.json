@@ -9,5 +9,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lynn89-eefje/jumbotron-backend.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lynn89-eefje/jumbotron-backend/issues"
+  },
+  "homepage": "https://github.com/lynn89-eefje/jumbotron-backend#readme"
 }
