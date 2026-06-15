@@ -17,5 +17,10 @@
   "bugs": {
     "url": "https://github.com/lynn89-eefje/jumbotron-backend/issues"
   },
-  "homepage": "https://github.com/lynn89-eefje/jumbotron-backend#readme"
+  "homepage": "https://github.com/lynn89-eefje/jumbotron-backend#readme",
+  "dependencies": {
+    "express": "^5.2.1",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1"
+  }
 }
