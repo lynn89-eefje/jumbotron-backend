@@ -119,11 +119,16 @@ async function validateAuth(authCode) {
             return null;
         }
 
-        const { payload } = await jose.jwtVerify(token, JWKS, {
-            algorithms: ["RS256"]
-        });
-
-        return payload.sub;
+        try {
+            const { payload } = await jose.jwtVerify(token, JWKS, {
+                algorithms: ["RS256"]
+            });
+            // If this doesn't fail, then user is authenticated and we can grab SlackID
+            return payload.slack_id;
+        }
+        catch(err) {
+            return null;
+        }
     }
     catch(err) {
         console.log("Failed to validate token", authCode);
@@ -152,7 +157,7 @@ app.post(`${environment_base}/editData`, async function(req, res) {
         }
         const statement = await db.prepare("UPDATE events SET liveshareData = ? WHERE name = ?");
         await statement.run([JSON.stringify(liveshareData), name]);
-        statement.finalize();
+        await statement.finalize();
 
         res.status(200).json({success: true, liveshareData: liveshareData});
 
@@ -185,7 +190,7 @@ app.post(`${environment_base}/addID`, async function(req, res) {
 
         const statement = await db.prepare("UPDATE events SET acceptedIDs = ? WHERE name = ?");
         await statement.run([JSON.stringify(acceptedIDs), name]);
-        statement.finalize()
+        await statement.finalize();
         
         res.status(200).json({success: true, addedID: newID});
     }
@@ -216,7 +221,7 @@ app.post(`${environment_base}/removeID`, async function(req, res) {
 
         const statement = await db.prepare("UPDATE events SET acceptedIDs = ? WHERE name = ?");
         await statement.run([JSON.stringify(removedIDs), name]);
-        statement.finalize();
+        await statement.finalize();
         res.status(200).json({success: true, removedID: removalID});
     }
     catch(err) {
