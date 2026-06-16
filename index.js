@@ -5,6 +5,7 @@ import * as jose from "jose";
 
 const environment_clientSecret = "x";
 const environment_masterKey = "x";
+const environment_base = "/jumbotron-backend";
 
 
 const app = express();
@@ -70,7 +71,7 @@ async function ensureEvent(eventName) {
 
 }
 
-app.get("/data", async function(req, res) {
+app.get(`${environment_base}/data`, async function(req, res) {
     console.log("DEVLOG: /data ran");
     const {eventName} = req.query;
     if (!eventName) { // Don't use eventName == false
@@ -132,7 +133,7 @@ async function validateAuth(authCode) {
     }
 }
 
-app.post("/editData", async function(req, res) {
+app.post(`${environment_base}/editData`, async function(req, res) {
     const { eventName, authCode, liveshareData } = req.body;
     if (!eventName || !authCode || !liveshareData) {
         return res.status(400).json({error: "Missing parameter(s)"});
@@ -163,7 +164,7 @@ app.post("/editData", async function(req, res) {
     }
 })
 
-app.post("/addID", async function(req, res) {
+app.post(`${environment_base}/addID`, async function(req, res) {
     const { eventName, masterKey, newID } = req.body;
     if (!eventName || !masterKey || !newID) {
         return res.status(400).json({error: "Missing parameter(s)"});
@@ -195,7 +196,7 @@ app.post("/addID", async function(req, res) {
     }
 })
 
-app.post("/removeID", async function(req, res) {
+app.post(`${environment_base}/removeID`, async function(req, res) {
     const { eventName, masterKey, removalID } = req.body;
     if (!eventName || !masterKey || !removalID) {
         return res.status(400).json({error: "Missing parameter(s)"});
