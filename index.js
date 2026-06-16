@@ -71,6 +71,7 @@ async function ensureEvent(eventName) {
 }
 
 app.get("/data", async function(req, res) {
+    console.log("DEVLOG: /data ran");
     const {eventName} = req.query;
     if (!eventName) { // Don't use eventName == false
         return res.status(400).json({error: "Missing eventName query parameter"});
