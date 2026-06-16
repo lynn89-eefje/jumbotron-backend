@@ -5,7 +5,7 @@ import * as jose from "jose";
 
 const environment_clientSecret = "x";
 const environment_masterKey = "x";
-const environment_base = "/jumbotron-backend";
+const environment_base = "";
 
 
 const app = express();
