@@ -3,9 +3,9 @@ import { open } from "sqlite";
 import sqlite3 from "sqlite3";
 import * as jose from "jose";
 
-const environment_clientSecret = "x";
-const environment_masterKey = "x";
-const environment_base = "/jumbotron-backend";
+const environment_clientSecret = "x"; // Server-side
+const environment_masterKey = "x"; // Server-side
+const environment_base = ""; // Testing purposes
 
 
 const app = express();
