@@ -109,7 +109,14 @@ async function validateAuth(authCode) {
         )
 
         if (!response || !response.ok) {
-            return null
+            console.error(`[OAuth Fetch Error] Status: ${response?.status}`);
+            try {
+                const errData = await response.json();
+                console.error("[OAuth Fetch Body]:", errData);
+            } catch {
+                console.error("[OAuth Fetch] Could not parse error body.");
+            }
+            return null;
         }
 
         const data = await response.json();
