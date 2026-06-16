@@ -230,3 +230,4 @@ const port = 3000;
 app.listen(port, function() {
     console.log(`Jumbotron running on port ${port}`);
 });
+app.set('trust proxy', 'loopback');
