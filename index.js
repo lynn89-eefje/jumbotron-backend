@@ -114,6 +114,7 @@ async function validateAuth(authCode) {
 
         const data = await response.json();
         const token = data.id_token;
+        console.log("Token", token); // DEVLOG
 
         if (!token) {
             return null;
@@ -127,6 +128,7 @@ async function validateAuth(authCode) {
             return payload.slack_id;
         }
         catch(err) {
+            console.log("Failed JOSE") //DEVLOG
             return null;
         }
     }
@@ -149,6 +151,7 @@ app.post(`${environment_base}/editData`, async function(req, res) {
         }
         const [name, acceptedIDs, currentLiveshareData] = response;
         const slackID = await validateAuth(authCode);
+        console.log("Slack ID Returned", slackID); // DEVLOG
         if (!slackID) {
             return res.status(401).json({error: "Invalid OAuth passed through parameter"});
         }
