@@ -224,8 +224,8 @@ app.post(`${environment_base}/removeID`, async function(req, res) {
     }
 })
 
-app.get(`${environment_base}/getKeys`, async function(req, res) {
-    const { eventName, masterKey } = req.body;
+app.get(`${environment_base}/getIDs`, async function(req, res) {
+    const { eventName, masterKey } = req.query;
     if (!eventName || !masterKey) {
         return res.status(400).json({error: "Missing parameter(s)"});
     }
@@ -233,9 +233,8 @@ app.get(`${environment_base}/getKeys`, async function(req, res) {
         return res.status(403).json({error: "Invalid authentication"});
     }
     try {
-        const statement = await db.get("SELECT * FROM events WHERE eventName = ?", [eventName]);
-        const [currentName, currentKeys, liveshareData] = statement;
-        res.status(200).json({success: true, keys: currentKeys});
+        let data = await ensureEvent(eventName);
+        res.status(200).json({success: true, keys: data[1]});
     }
     catch(err) {
         return res.status(500).json({error: err.message});
@@ -247,7 +246,7 @@ app.post(`${environment_base}/cacheEvents`, async function(req, res) {
     if (!auth) {
         return res.status(400).json({error: "No authentication provided"});
     }
-    if (auth != masterKey) {
+    if (auth != environment_masterKey) {
         return res.status(403).json({error: "Invalid authentication provided"});
     }
     cacheCities();
