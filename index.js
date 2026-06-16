@@ -3,9 +3,9 @@ import { open } from "sqlite";
 import sqlite3 from "sqlite3";
 import * as jose from "jose";
 
-const environment_clientSecret = "x"; // Server-side
-const environment_masterKey = "x"; // Server-side
-const environment_base = ""; // Testing purposes
+const environment_clientSecret = "x";
+const environment_masterKey = "x";
+const environment_base = "/jumbotron-backend";
 
 
 const app = express();
@@ -48,7 +48,6 @@ function checkCity(cityName) {
     `)
     await cacheCities();
     console.log("Initialization complete");
-    setInterval(cacheCities, 5*60*1000);
 })();
 
 async function ensureEvent(eventName) {
@@ -224,6 +223,18 @@ app.post(`${environment_base}/removeID`, async function(req, res) {
     catch(err) {
         return res.status(500).json({error: err.message});
     }
+})
+
+app.post(`${environment_base}/cacheEvents`, async function(req, res) {
+    const { auth } = req.body;
+    if (!auth) {
+        return res.status(400).json({error: "No authentication provided"});
+    }
+    if (auth != masterKey) {
+        return res.status(403).json({error: "Invalid authentication provided"});
+    }
+    cacheCities();
+    res.status(200).json({success: true})
 })
 
 const port = 3000;
