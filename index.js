@@ -71,7 +71,6 @@ async function ensureEvent(eventName) {
 }
 
 app.get(`${environment_base}/data`, async function(req, res) {
-    console.log("DEVLOG: /data ran");
     const {eventName} = req.query;
     if (!eventName) { // Don't use eventName == false
         return res.status(400).json({error: "Missing eventName query parameter"});
@@ -224,6 +223,24 @@ app.post(`${environment_base}/removeID`, async function(req, res) {
         return res.status(500).json({error: err.message});
     }
 })
+
+app.get(`${environment_base}/getKeys`, async function(req, res) {
+    const { eventName, masterKey } = req.body;
+    if (!eventName || !masterKey) {
+        return res.status(400).json({error: "Missing parameter(s)"});
+    }
+    if (masterKey != environment_masterKey) {
+        return res.status(403).json({error: "Invalid authentication"});
+    }
+    try {
+        const statement = await db.get("SELECT * FROM events WHERE eventName = ?", [eventName]);
+        const [currentName, currentKeys, liveshareData] = statement;
+        res.status(200).json({success: true, keys: currentKeys});
+    }
+    catch(err) {
+        return res.status(500).json({error: err.message});
+    }
+}) 
 
 app.post(`${environment_base}/cacheEvents`, async function(req, res) {
     const { auth } = req.body;
