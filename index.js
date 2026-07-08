@@ -318,6 +318,16 @@ app.post("/createSession", async (req, res) => {
     return res.status(200).json({emailAddress: data2.identity.primary_email, key: key});
 })
 
+app.post("/wipeSessions", async (req, res) => {
+    let {authKey} = req.body;
+    if (!authKey) {
+        return res.status(401).json({error: "Not allowed"});
+    }
+    sessions = [];
+    sendDataToSlack();
+    return res.status(200).json({message: "All sessions have been wiped"});
+})
+
 
 // --- Server Startup ---
 await cacheCities();
