@@ -20,9 +20,6 @@
   "homepage": "https://github.com/lynn89-eefje/jumbotron-backend#readme",
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "jose": "^6.2.3",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1"
+    "express": "^5.2.1"
   }
 }
