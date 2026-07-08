@@ -1,24 +1,19 @@
 import express from "express";
-import { open } from "sqlite";
-import sqlite3 from "sqlite3";
-import * as jose from "jose";
+import dotenv from "dotenv";
+import crypto from "crypto";
+dotenv.config();
 
-// --- Configuration Setup ---
-const environment_clientSecret = process.env.CLIENT_SECRET || "x";
-const environment_masterKey = process.env.MASTER_KEY || "x";
-const environment_internalKey = process.env.INTERNAL_KEY || "74f564db-7ee5-4dcf-ab3e-151e87ff4ea3";
-const environment_base = "";
+const masterKey = process.env.MASTER;
 
 const app = express();
 app.use(express.json());
 
-// Set up keys
-const JWKS = jose.createRemoteJWKSet(new URL("https://auth.hackclub.com/oauth/discovery/keys"));
-const localSecret = new Uint8Array(Buffer.from(environment_internalKey, "utf-8"));
-
-// --- Memory Cache for Valid Cities ---
-let db;
 let validCitiesCache = [];
+
+let events = [];
+let sessions = [];
+
+let clientID = "e86d4d7eec9c546e6c4700388d4fea7f";
 
 async function cacheCities() {
     try {
@@ -35,259 +30,305 @@ function checkCity(cityName) {
     return validCitiesCache.includes(cityName);
 }
 
-// --- Database & Cache Initialization ---
-(async function() {
-    db = await open({
-        filename: "./events_database.db",
-        driver: sqlite3.Database
-    });
-
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS events (
-            name TEXT PRIMARY KEY,
-            acceptedIDs TEXT DEFAULT '[]',
-            liveshareData TEXT DEFAULT '{}'
-        )
-    `);
-    await cacheCities();
-    console.log("Initialization complete");
-})();
-
-// --- Helper Functions ---
-async function ensureEvent(eventName) {
+// Synchronous now, as it just looks up and pushes to a local array
+function ensureEvent(eventName) {
     if (!checkCity(eventName)) {
         return false;
     }
-    let event = await db.get("SELECT * FROM events WHERE name = ?", [eventName]);
+    
+    // Find event in our local list
+    let event = events.find(e => e.name === eventName);
 
+    // If it doesn't exist, create it and push it to the list
     if (!event) {
-        const statement = await db.prepare("INSERT INTO events (name, acceptedIDs, liveshareData) VALUES (?, ?, ?)");
-        await statement.run([eventName, '[]', '{}']);
-        await statement.finalize();
-        event = { name: eventName, acceptedIDs: '[]', liveshareData: '{}' };
+        event = { 
+            name: eventName, 
+            acceptedEmails: [],
+            liveshareData: {} 
+        };
+        events.push(event);
     }
 
     return [
-        event.name, JSON.parse(event.acceptedIDs), JSON.parse(event.liveshareData)
+        event.name, event.acceptedEmails, event.liveshareData
     ];
 }
 
-async function validateAuth(authCode) {
+async function sendDataToSlack() {
+    const slackToken = process.env.BOT_TOKEN;
+    const channelId = process.env.CHANNEL_ID;
+    const port = process.env.PORT || 3000;
+
+    if (!slackToken || !channelId) {
+        console.error("Missing Slack environment variables.");
+        return;
+    }
+
+    // Step 1: Serialize the state into a structured payload object
+    const innerJsonPayload = JSON.stringify({
+        authKey: masterKey || 'your_master_key',
+        eventsNew: events,
+        sessionsNew: sessions
+    });
+
+    // Step 2: Convert the JSON text safely into an un-fakeable Base64 alphanumeric string.
+    // This entirely avoids quotes, brackets, and spaces breaking your terminal shell environment!
+    const base64Payload = Buffer.from(innerJsonPayload, 'utf-8').toString('base64');
+
+    // Step 3: Format the one-liner terminal payload.
+    // When pasted, the terminal automatically unpacks the Base64 data directly into curl's standard input.
+    const copyPasteCommand = `echo "${base64Payload}" | base64 -d | curl -X POST "http://localhost:${port}/masterOverride" -H "Content-Type: application/json" -d @-`;
+
     try {
-        const response = await fetch("https://auth.hackclub.com/oauth/token", {
+        // Post directly to the chat channel as standard text instead of allocating file space links
+        const response = await fetch("https://slack.com/api/chat.postMessage", {
             method: "POST",
+            headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "Authorization": `Bearer ${slackToken}`
+            },
             body: JSON.stringify({
-                "client_id": "e86d4d7eec9c546e6c4700388d4fea7f",
-                "client_secret": environment_clientSecret,
-                "redirect_uri": "https://curly-bassoon-6vrjgqpjpjjhwj6-5173.app.github.dev/jumbotron/",
-                "code": authCode,
-                "grant_type": "authorization_code"
-            }),
-            headers: { "Content-type": "application/json; charset=UTF-8" }
+                channel: channelId,
+                text: `🚨 *Jumbotron Snapshot Update* 🚨\nTotal Events: *${events.length}* | Total Sessions: *${sessions.length}*\n\n*Copy and paste this directly into your terminal to restore:* \n\`\`\`${copyPasteCommand}\`\`\``
+            })
         });
 
-        if (!response || !response.ok) {
-            console.error(`[OAuth Fetch Error] Status: ${response?.status}`);
-            try {
-                const errData = await response.json();
-                console.error("[OAuth Fetch Body]:", errData);
-            } catch {
-                console.error("[OAuth Fetch] Could not parse error body.");
-            }
-            return null;
+        const result = await response.json();
+        if (!result.ok) {
+            console.error("Slack chat.postMessage Error:", result.error);
+        } else {
+            console.log("Interactive curl terminal snippet posted to Slack channel!");
         }
-
-        const data = await response.json();
-        const token = data.id_token;
-
-        if (!token) return null;
-
-        try {
-            const { payload } = await jose.jwtVerify(token, JWKS, { algorithms: ["RS256"] });
-            return payload.slack_id || payload.sub;
-        } catch(err) {
-            console.error("Failed JOSE Verification:", err.message);
-            return null;
-        }
-    } catch(err) {
-        console.error("Failed to validate token", authCode, err.message);
-        return null;
+    } catch (err) {
+        console.error("Failed to post terminal command snippet to Slack:", err);
     }
 }
 
-// --- API Routes ---
-
-// 1. Session Token Exchange (Single-use OAuth Code converts to 30-Day Session)
-app.post(`${environment_base}/login`, async function(req, res) {
-    const { authCode } = req.body;
-    if (!authCode) {
-        return res.status(400).json({ error: "Missing parameter" });
-    }
-    
-    const slackID = await validateAuth(authCode);
-    if (!slackID) {
-        return res.status(401).json({ error: "Invalid or expired authorization code" });
-    }
-    
-    const sessionToken = await new jose.SignJWT({ slack_id: slackID })
-        .setProtectedHeader({ alg: "HS256" })
-        .setIssuedAt()
-        .setExpirationTime("30d")
-        .sign(localSecret);
-
-    res.status(200).json({ success: true, token: sessionToken });
-});
-
-// 2. Read Event Data
-app.get(`${environment_base}/data`, async function(req, res) {
+// --- Express Routes ---
+app.get(`/data`, async function(req, res) {
     const { eventName } = req.query;
     if (!eventName) {
         return res.status(400).json({ error: "Missing eventName query parameter" });
     }
 
     try {
-        const response = await ensureEvent(eventName);
+        const response = ensureEvent(eventName);
         if (response === false) {
             return res.status(404).json({ error: "Invalid eventName value; did not find event" });
         }
 
-        const [name, acceptedIDs, liveshareData] = response;
+        const [name, acceptedEmails, liveshareData] = response;
         res.status(200).json({ data: liveshareData });
     } catch (err) {
         return res.status(500).json({ error: err.message });
     }
 });
 
-// 3. Write Event Data (Uses Session Token)
-app.post(`${environment_base}/editData`, async function(req, res) {
-    const { eventName, sessionToken, liveshareData } = req.body;
-    if (!eventName || !sessionToken || !liveshareData) {
-        return res.status(400).json({ error: "Missing parameter(s)" });
+app.get("/acceptedEmails", async (req, res) => {
+    let {authKey, cityName} = req.query;
+    if (!authKey || authKey !== masterKey || !cityName) {
+        return res.status(400).json({ error: "Missing parameter or invalid auth query parameter" });
     }
-
-    try {
-        const response = await ensureEvent(eventName);
-        if (response === false) {
-            return res.status(400).json({ error: "Invalid eventName value; did not find event" });
-        }
-        const [name, acceptedIDs] = response;
-        
-        let slackID;
-        try {
-            const identityJSON = await jose.jwtVerify(sessionToken, localSecret);
-            slackID = identityJSON.payload.slack_id;
-        } catch (jwtErr) {
-            console.error("Local session validation failed:", jwtErr.message);
-            return res.status(401).json({ error: "Invalid or expired session token. Please log in again." });
-        }
-
-        if (acceptedIDs.indexOf(slackID) === -1) {
-            return res.status(403).json({ error: "Provided session token does not have permission to edit this event" });
-        }
-
-        const statement = await db.prepare("UPDATE events SET liveshareData = ? WHERE name = ?");
-        await statement.run([JSON.stringify(liveshareData), name]);
-        await statement.finalize();
-
-        res.status(200).json({ success: true, liveshareData: liveshareData });
-    } catch (err) {
-        return res.status(500).json({ error: err.message });
+    
+    const response = ensureEvent(cityName); // No longer needs await
+    if (!response) {
+        return res.status(400).json({error: "Invalid cityName"});
     }
+    const [ acceptName, acceptedEmails, rawData ] = response;
+    res.status(200).json({data: acceptedEmails});
 });
 
-// 4. Admin: Add Permitted Slack ID
-app.post(`${environment_base}/addID`, async function(req, res) {
-    const { eventName, masterKey, newID } = req.body;
-    if (!eventName || !masterKey || !newID) {
-        return res.status(400).json({ error: "Missing parameter(s)" });
+app.post("/addEmail", async (req, res) => {
+    let {authKey, cityName, emailAddress} = req.body;
+    if (!authKey || !cityName || !emailAddress) {
+        return res.status(400).json({error: "Missing parameter(s)"});
     }
-    try {
-        if (masterKey !== environment_masterKey) {
-            return res.status(403).json({ error: "Provided authentication key invalid" });
-        }
-        const response = await ensureEvent(eventName);
-        if (!response) {
-            return res.status(400).json({ error: "Invalid eventName value; did not find event" });
-        }
-        const [name, currentIDs] = response;
-        if (currentIDs.indexOf(newID) !== -1) {
-            return res.status(400).json({ error: "Requested ID is already permitted for this event" });
-        }
-
-        const acceptedIDs = [...currentIDs, newID];
-
-        const statement = await db.prepare("UPDATE events SET acceptedIDs = ? WHERE name = ?");
-        await statement.run([JSON.stringify(acceptedIDs), name]);
-        await statement.finalize();
-        
-        res.status(200).json({ success: true, addedID: newID });
-    } catch(err) {
-        return res.status(500).json({ error: err.message });
+    if (authKey !== masterKey) {
+        return res.status(401).json({error: "Invalid auth query parameter"});
     }
+    let details = ensureEvent(cityName);
+    if (!details) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+    for (let i = 0; i < events.length; i++) {
+        if (events[i].name === cityName) {
+            if (events[i].acceptedEmails.indexOf(emailAddress) === -1) {
+                events[i].acceptedEmails.push(emailAddress);
+                return res.status(200).json({message: "Added email"});
+            }
+            else {
+                return res.status(400).json({error: "Email is already on the list"});
+            }
+        }
+    }
+    
+})
+
+app.post("/removeEmail", async (req, res) => {
+    let {authKey, cityName, emailAddress} = req.body;
+    if (!authKey || !cityName || !emailAddress) {
+        return res.status(400).json({error: "Missing parameter(s)"});
+    }
+    if (authKey !== masterKey) {
+        return res.status(401).json({error: "Invalid auth query parameter"});
+    }
+    let details = ensureEvent(cityName);
+    if (!details) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+    for (let i = 0; i < events.length; i++) {
+        if (events[i].name === cityName) {
+            if (events[i].acceptedEmails.indexOf(emailAddress) !== -1) {
+                events[i].acceptedEmails = events[i].acceptedEmails.filter(e => e !== emailAddress);
+                return res.status(200).json({message: "Removed email"});
+            }
+            else {
+                return res.status(400).json({error: "Email is not on the list"});
+            }
+        }
+    }
+})
+
+app.post("/mutate", async (req, res) => {
+    let {auth, cityName, data} = req.body;
+    if (!auth || !cityName || !data) {
+        return res.status(400).json({error: "Missing parameter(s)"});
+    }
+    let response = ensureEvent(cityName);
+    if (!response) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+    if (auth !== masterKey) {
+        if (!auth.emailAddress || !auth.key) {
+            return res.status(400).json({error: "Invalid auth parameter"});
+        }
+        const [name, acceptedEmails] = response;
+        if (acceptedEmails.indexOf(auth.emailAddress) === -1) {
+            return res.status(400).json({error: "Invalid email"});
+        }
+        let validSet = sessions.find(e => e.key === auth.key && e.cityName === cityName);
+        if (!validSet) {
+            return res.status(401).json({error: "Invalid authentication"});
+        }
+        if (validSet.emailAddress !== auth.emailAddress) {
+            return res.status(401).json({error: "Invalid authentication"});
+        }
+    }
+    for (let i = 0; i < events.length; i++) {
+        if (events[i].name === cityName) {
+            events[i].liveshareData = data;
+            return res.status(200).json({message: "Changed liveshare data"});
+        }
+    }
+})
+
+app.post("/masterOverride", async (req, res) => {
+    let {authKey, eventsNew, sessionsNew} = req.body;
+    if (!authKey || !eventsNew || !sessionsNew) {
+        return res.status(400).json({error: "Missing parameter(s)"});
+    }
+    if (authKey !== masterKey) {
+        return res.status(401).json({error: "Invalid auth query parameter"});
+    }
+
+    cacheCities();
+
+    events = eventsNew;
+    sessions = sessionsNew;
+
+    sendDataToSlack();
+    return res.status(200).json({ message: "Override successful and state backup triggered." });
 });
 
-// 5. Admin: Remove Permitted Slack ID
-app.post(`${environment_base}/removeID`, async function(req, res) {
-    const { eventName, masterKey, removalID } = req.body;
-    if (!eventName || !masterKey || !removalID) {
-        return res.status(400).json({ error: "Missing parameter(s)" });
+app.post("/forceCache", async (req, res) => {
+    let {authKey} = req.body;
+    if (authKey === masterKey) {
+        cacheCities();
+        return res.status(200).json({message: "Cached"});
     }
-    try {
-        if (masterKey !== environment_masterKey) {
-            return res.status(403).json({ error: "Provided authentication key invalid" });
-        }
-        const response = await ensureEvent(eventName);
-        if (!response) {
-            return res.status(400).json({ error: "Invalid eventName value; did not find event" });
-        }
-        const [name, currentIDs] = response;
+    return res.status(401).json({error: "Missing or invalid parameter"});
+})
 
-        const removedIDs = currentIDs.filter((key) => key !== removalID);
-        if (removedIDs.length === currentIDs.length) {
-            return res.status(404).json({ error: "Provided ID for removal is not active anyway" });
-        }
+app.post("/genBackup", async (req, res) => {
+    let {authKey} = req.body;
+    if (authKey !== masterKey) {
+        return res.status(400).json({error: "Invalid auth"});
+    }
+    sendDataToSlack();
+    return res.status(200).json({message: "Sent through Slack"});
+})
 
-        const statement = await db.prepare("UPDATE events SET acceptedIDs = ? WHERE name = ?");
-        await statement.run([JSON.stringify(removedIDs), name]);
-        await statement.finalize();
-        res.status(200).json({ success: true, removedID: removalID });
-    } catch(err) {
-        return res.status(500).json({ error: err.message });
+app.post("/createSession", async (req, res) => {
+    let {code, cityName} = req.body;
+    if (!code || !cityName) {
+        return res.status(400).json({error: "Missing parameter(s)"});
     }
-});
+    let cityExists = ensureEvent(cityName);
+    if (!cityExists) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+    const response = await fetch("https://auth.hackclub.com/oauth/token", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            client_id: clientID,
+            client_secret: process.env.CLIENT_SECRET,
+            redirect_uri: process.env.REDIRECT,
+            code: code,
+            grant_type: "authorization_code"
+        })
+    });
 
-// 6. Admin: Get Authorized IDs for an Event
-app.get(`${environment_base}/getIDs`, async function(req, res) {
-    const { eventName, masterKey } = req.query;
-    if (!eventName || !masterKey) {
-        return res.status(400).json({ error: "Missing parameter(s)" });
+    const data = await response.json();
+    if (!response.ok) {
+        return res.status(400).json({ error: "OAuth exchange failed", details: data });
     }
-    if (masterKey !== environment_masterKey) {
-        return res.status(403).json({ error: "Invalid authentication" });
-    }
-    try {
-        let data = await ensureEvent(eventName);
-        res.status(200).json({ success: true, keys: data[1] });
-    } catch(err) {
-        return res.status(500).json({ error: err.message });
-    }
-}); 
 
-// 7. Admin: Force Refresh City Cache
-app.post(`${environment_base}/cacheEvents`, async function(req, res) {
-    const { auth } = req.body;
-    if (!auth) {
-        return res.status(400).json({ error: "No authentication provided" });
+    // https://auth.hackclub.com/api/v1/me
+
+    const getInfo = await fetch("https://auth.hackclub.com/api/v1/me", {
+        method: "GET",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${data.access_token}`
+        },
+
+    })
+    const data2 = await getInfo.json();
+    console.log("New session validated for ", data2.identity.primary_email);
+    if (data2.identity.verification_status === "ineligible") {
+        return res.status(401).json({error: "User must be YSWS eligible"});
     }
-    if (auth !== environment_masterKey) {
-        return res.status(403).json({ error: "Invalid authentication provided" });
+    let [eventName, acceptedEmails, liveshareData] = cityExists;
+    if (acceptedEmails.indexOf(data2.identity.primary_email) == -1) {
+        return res.status(401).json({error: "Email is not accepted for this event: must be added using /addEmail"});
     }
-    await cacheCities();
-    res.status(200).json({ success: true });
-});
+
+    const generateKey = () => {return crypto.randomBytes(32).toString("hex")}
+    const key = generateKey();
+    sessions = sessions.filter(e => e.emailAddress !== data2.identity.primary_email);
+    sessions.push({
+        emailAddress: data2.identity.primary_email,
+        cityName: cityName,
+        key: key
+    })
+    console.log("New session validated for ", data2.identity.primary_email);
+    return res.status(200).json({emailAddress: data2.identity.primary_email, key: key});
+})
+
 
 // --- Server Startup ---
-const port = 3000;
+await cacheCities();
+await sendDataToSlack();
+const port = process.env.PORT || 3000; 
+
+setInterval(async () => {
+    await sendDataToSlack();
+    await cacheCities();
+}, 10*1000*60)
+
 app.listen(port, function() {
     console.log(`Jumbotron running on port ${port}`);
 });
