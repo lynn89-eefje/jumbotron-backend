@@ -1,5 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
+import cors from "cors";
 import crypto from "crypto";
 dotenv.config();
 
@@ -7,6 +8,16 @@ const masterKey = process.env.MASTER;
 
 const app = express();
 app.use(express.json());
+app.use(cors({
+    origin: [
+        "https://curly-bassoon-6vrjgqpjpjjhwj6-5173.app.github.dev",
+        "https://jumbotron.hackclub.com"
+    ],
+    methods: [
+        "POST", "GET"
+    ],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}))
 
 let validCitiesCache = [];
 
