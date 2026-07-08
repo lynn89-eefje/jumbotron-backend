@@ -77,7 +77,7 @@ async function sendDataToSlack() {
 
     // Step 3: Format the one-liner terminal payload.
     // When pasted, the terminal automatically unpacks the Base64 data directly into curl's standard input.
-    const copyPasteCommand = `echo "${base64Payload}" | base64 -d | curl -X POST "http://localhost:${port}/masterOverride" -H "Content-Type: application/json" -d @-`;
+    const copyPasteCommand = `echo "${base64Payload}" | base64 -d | curl -X POST "http://jumbotron.lynn89sudo.hackclub.app/masterOverride" -H "Content-Type: application/json" -d @-`;
 
     try {
         // Post directly to the chat channel as standard text instead of allocating file space links
