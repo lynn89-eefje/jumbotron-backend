@@ -136,7 +136,7 @@ function ensureEvent(eventName) {
     }
     
     // Find event in our local list
-    let event = events.find(e => e.name === eventName);
+    let event = events.find(e => e.eventName === eventName);
 
     // If it doesn't exist, create it and push it to the list
     if (!event) {
