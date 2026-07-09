@@ -20,6 +20,7 @@ app.use(cors({
 }))
 
 let validCitiesCache = [];
+let pocEmailsCache = [];
 
 let refList = [
     {
@@ -119,6 +120,7 @@ async function cacheCities() {
         //const data = await rawData.json();
         let data = refList;
         validCitiesCache = data.map(event => event.eventName);
+        pocEmailsCache = data.map(event => event.poc);
         console.log("Cached events");
     } catch(err) {
         console.error("Failed to cache cities: ", err);
@@ -136,13 +138,13 @@ function ensureEvent(eventName) {
     }
     
     // Find event in our local list
-    let event = events.find(e => e.eventName === eventName);
+    let event = events.find(e => e.name === eventName);
 
     // If it doesn't exist, create it and push it to the list
     if (!event) {
         event = { 
             name: eventName, 
-            acceptedEmails: [e.poc],
+            acceptedEmails: [pocEmailsCache[validCitiesCache.indexOf(eventName)]],
             liveshareData: {} 
         };
         events.push(event);
