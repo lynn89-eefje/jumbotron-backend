@@ -165,19 +165,24 @@ async function sendDataToSlack() {
         return;
     }
 
-    // Step 1: Serialize the state into a structured payload object
+    // Strip live share data from the active events list before backing it up
+    const cleanEventsBackup = events.map(event => ({
+        name: event.name,
+        acceptedEmails: [...event.acceptedEmails],
+        liveshareData: {} // Drop the active layout state entirely
+    }));
+
+    // Step 1: Serialize the clean metadata state (sessionsNew is intentionally empty)
     const innerJsonPayload = JSON.stringify({
         authKey: masterKey || 'your_master_key',
-        eventsNew: events,
-        sessionsNew: sessions
+        eventsNew: cleanEventsBackup,
+        sessionsNew: [] // Wipes active logins on restore
     });
 
     // Step 2: Convert the JSON text safely into an un-fakeable Base64 alphanumeric string.
-    // This entirely avoids quotes, brackets, and spaces breaking your terminal shell environment!
     const base64Payload = Buffer.from(innerJsonPayload, 'utf-8').toString('base64');
 
     // Step 3: Format the one-liner terminal payload.
-    // When pasted, the terminal automatically unpacks the Base64 data directly into curl's standard input.
     const copyPasteCommand = `echo "${base64Payload}" | base64 -d | curl -X POST "http://jumbotron.lynn89sudo.hackclub.app/masterOverride" -H "Content-Type: application/json" -d @-`;
 
     try {
@@ -190,7 +195,7 @@ async function sendDataToSlack() {
             },
             body: JSON.stringify({
                 channel: channelId,
-                text: `🚨 *Jumbotron Snapshot Update* 🚨\nTotal Events: *${events.length}* | Total Sessions: *${sessions.length}*\n\n*Copy and paste this directly into your terminal to restore:* \n\`\`\`${copyPasteCommand}\`\`\``
+                text: `🚨 *Jumbotron Configuration Snapshot Update* 🚨\nTotal Active Cities: *${cleanEventsBackup.length}* | _Live share states and sessions excluded for security and cleanliness._\n\n*Copy and paste this directly into your terminal to restore config and access lists:* \n\`\`\`${copyPasteCommand}\`\`\``
             })
         });
 
@@ -198,7 +203,7 @@ async function sendDataToSlack() {
         if (!result.ok) {
             console.error("Slack chat.postMessage Error:", result.error);
         } else {
-            console.log("Interactive curl terminal snippet posted to Slack channel!");
+            console.log("Configuration-only curl terminal snippet posted to Slack channel!");
         }
     } catch (err) {
         console.error("Failed to post terminal command snippet to Slack:", err);
@@ -318,6 +323,7 @@ app.post("/mutate", async (req, res) => {
     for (let i = 0; i < events.length; i++) {
         if (events[i].name === cityName) {
             events[i].liveshareData = data;
+            broadcastToCity(cityName, data);
             return res.status(200).json({message: "Changed liveshare data"});
         }
     }
@@ -398,7 +404,7 @@ app.post("/createSession", async (req, res) => {
 
     })
     const data2 = await getInfo.json();
-    console.log("New session validated for ", data2.identity.primary_email);
+    //console.log("New session validated for ", data2.identity.primary_email);
     if (data2.identity.verification_status === "ineligible") {
         return res.status(401).json({error: "User must be YSWS eligible"});
     }
@@ -415,7 +421,7 @@ app.post("/createSession", async (req, res) => {
         cityName: cityName,
         key: key
     })
-    console.log("New session validated for ", data2.identity.primary_email);
+    //console.log("New session validated for ", data2.identity.primary_email);
     return res.status(200).json({emailAddress: data2.identity.primary_email, key: key});
 })
 
@@ -427,7 +433,46 @@ app.post("/wipeSessions", async (req, res) => {
     sessions = [];
     sendDataToSlack();
     return res.status(200).json({message: "All sessions have been wiped"});
+});
+
+let streams = {};
+app.get("/stream", (req, res) => {
+    let {cityName} = req.query;
+    if (!cityName) {
+        return res.status(400).json({error: "Missing cityName"});
+    }
+    if (ensureEvent(cityName) === false) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+
+
+    res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive"
+    })
+
+    res.write(`data: ${JSON.stringify({message: "Connected to stream"})}\n\n`);
+
+    if (streams[cityName] == null ) {
+        streams[cityName] = [];
+    }
+    streams[cityName].push(res)
+
+    req.on("close", () => {
+        streams[cityName] = streams[cityName].filter(e => e !== res);
+        if (streams[cityName] && streams[cityName].length === 0) {
+            delete streams[cityName];
+        }
+    })
 })
+
+function broadcastToCity(cityName, data) {
+    if (streams[cityName]) {
+        let message = `data: ${JSON.stringify(data)}\n\n`; // \n\n is required
+        streams[cityName].forEach(e => e.write(message));
+    } 
+}
 
 
 // --- Server Startup ---
