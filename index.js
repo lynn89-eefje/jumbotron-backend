@@ -437,7 +437,7 @@ const port = process.env.PORT || 3000;
 
 setInterval(async () => {
     await sendDataToSlack();
-    await cacheCities();
+    //await cacheCities();
 }, 10*1000*60)
 
 app.listen(port, function() {
