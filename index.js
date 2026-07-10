@@ -295,7 +295,25 @@ app.post("/removeEmail", async (req, res) => {
         }
     }
 })
-
+app.use(["/mutate", "/terminateLiveshare"], express.text({ type: "text/plain" }), (req, res, next) => {
+    if (typeof req.body === "string" && req.body.trim().startsWith("{")) {
+        try {
+            req.body = JSON.parse(req.body);
+        } catch (err) {
+            console.error("Failed to parse plain-text JSON beacon:", err);
+        }
+    }
+    next();
+});
+app.post("/wipeSessions", async (req, res) => {
+    let {authKey} = req.body;
+    if (!authKey) {
+        return res.status(401).json({error: "Not allowed"});
+    }
+    sessions = [];
+    sendDataToSlack();
+    return res.status(200).json({message: "All sessions have been wiped"});
+});
 app.post("/mutate", async (req, res) => {
     let {auth, cityName, data} = req.body;
     if (!auth || !cityName || !data) {
@@ -309,6 +327,7 @@ app.post("/mutate", async (req, res) => {
         if (!auth.emailAddress || !auth.key) {
             return res.status(400).json({error: "Invalid auth parameter"});
         }
+        console.log(`/mutate by ${auth.emailAddress}`);
         const [name, acceptedEmails] = response;
         if (acceptedEmails.indexOf(auth.emailAddress) === -1) {
             return res.status(400).json({error: "Invalid email"});
@@ -328,6 +347,31 @@ app.post("/mutate", async (req, res) => {
             return res.status(200).json({message: "Changed liveshare data"});
         }
     }
+})
+
+app.post("/terminateLiveshare", async (req, res) => {
+    let {emailAddress, key, cityName} = req.body;
+    if (!emailAddress || !key || !cityName) {
+        return res.status(400).json({error: "Missing parameter(s)"});
+    }
+    if (ensureEvent(cityName) === false) {
+        return res.status(400).json({error: "Invalid cityName"});
+    }
+    let valid = events.find(e => e.acceptedEmails.indexOf(emailAddress) != -1 && e.name === cityName);
+    if (!valid) {
+        return res.status(401).json({error: "Email address is not added to this event"});
+    }
+    let valid2 = sessions.find(e => e.emailAddress === emailAddress && e.key === key);
+    if (!valid2) {
+        return res.status(401).json({error: "Invalid credential"});
+    }
+    let index = events.findIndex(e => e.name == cityName);
+    if (index === -1) {
+        return res.status(500).json({error: "Index mismatch"});
+    }
+    events[index].liveshareData = {active: false};
+    broadcastToCity(cityName, {active: false});
+    return res.status(200).json({message: "Success"});
 })
 
 app.post("/masterOverride", async (req, res) => {
@@ -425,16 +469,6 @@ app.post("/createSession", async (req, res) => {
     //console.log("New session validated for ", data2.identity.primary_email);
     return res.status(200).json({emailAddress: data2.identity.primary_email, key: key});
 })
-
-app.post("/wipeSessions", async (req, res) => {
-    let {authKey} = req.body;
-    if (!authKey) {
-        return res.status(401).json({error: "Not allowed"});
-    }
-    sessions = [];
-    sendDataToSlack();
-    return res.status(200).json({message: "All sessions have been wiped"});
-});
 
 let streams = {};
 app.get("/stream", (req, res) => {
