@@ -11,7 +11,8 @@ app.use(express.json());
 app.use(cors({
     origin: [
         "https://curly-bassoon-6vrjgqpjpjjhwj6-5173.app.github.dev",
-        "https://jumbotron.hackclub.com"
+        "https://jumbotron.hackclub.com",
+        "https://hacklyn.city/jumbotron"
     ],
     methods: [
         "POST", "GET"
