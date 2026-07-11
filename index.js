@@ -160,35 +160,29 @@ function ensureEvent(eventName) {
 async function sendDataToSlack() {
     const slackToken = process.env.BOT_TOKEN;
     const channelId = process.env.CHANNEL_ID;
-    const port = process.env.PORT || 3000;
 
     if (!slackToken || !channelId) {
         console.error("Missing Slack environment variables.");
         return;
     }
 
-    // Strip live share data from the active events list before backing it up
-    const cleanEventsBackup = events.map(event => ({
+    // Isolate only emails per city; completely exclude active sessions and liveshare states
+    const emailOnlyBackup = events.map(event => ({
         name: event.name,
-        acceptedEmails: [...event.acceptedEmails],
-        liveshareData: {} // Drop the active layout state entirely
+        acceptedEmails: [...event.acceptedEmails]
     }));
 
-    // Step 1: Serialize the clean metadata state (sessionsNew is intentionally empty)
-    const innerJsonPayload = JSON.stringify({
+    // Package directly into the requested structured JSON format
+    const adminConsolePayload = {
         authKey: masterKey || 'your_master_key',
-        eventsNew: cleanEventsBackup,
-        sessionsNew: [] // Wipes active logins on restore
-    });
+        eventsNew: emailOnlyBackup,
+        sessionsNew: [] // Explicitly reset sessions to keep it clean
+    };
 
-    // Step 2: Convert the JSON text safely into an un-fakeable Base64 alphanumeric string.
-    const base64Payload = Buffer.from(innerJsonPayload, 'utf-8').toString('base64');
-
-    // Step 3: Format the one-liner terminal payload.
-    const copyPasteCommand = `echo "${base64Payload}" | base64 -d | curl -X POST "http://jumbotron.lynn89sudo.hackclub.app/masterOverride" -H "Content-Type: application/json" -d @-`;
+    const payloadString = JSON.stringify(adminConsolePayload, null, 2);
 
     try {
-        // Post directly to the chat channel as standard text instead of allocating file space links
+        // Post directly to the chat channel as a clean markdown block for your admin console
         const response = await fetch("https://slack.com/api/chat.postMessage", {
             method: "POST",
             headers: {
@@ -197,7 +191,7 @@ async function sendDataToSlack() {
             },
             body: JSON.stringify({
                 channel: channelId,
-                text: `🚨 *Jumbotron Configuration Snapshot Update* 🚨\nTotal Active Cities: *${cleanEventsBackup.length}* | _Live share states and sessions excluded for security and cleanliness._\n\n*Copy and paste this directly into your terminal to restore config and access lists:* \n\`\`\`${copyPasteCommand}\`\`\``
+                text: `🚨 *Jumbotron Email Configuration Snapshot* 🚨\nTotal Tracked Cities: *${emailOnlyBackup.length}* | _Active active login sessions excluded._\n\n*Copy and paste this JSON data block directly into your admin console or use with /mutate:* \n\`\`\`json\n${payloadString}\n\`\`\``
             })
         });
 
@@ -205,10 +199,10 @@ async function sendDataToSlack() {
         if (!result.ok) {
             console.error("Slack chat.postMessage Error:", result.error);
         } else {
-            console.log("Configuration-only curl terminal snippet posted to Slack channel!");
+            console.log("JSON admin console payload posted to Slack channel!");
         }
     } catch (err) {
-        console.error("Failed to post terminal command snippet to Slack:", err);
+        console.error("Failed to post JSON backup to Slack:", err);
     }
 }
 
