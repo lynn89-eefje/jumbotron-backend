@@ -12,7 +12,8 @@ app.use(cors({
     origin: [
         "https://curly-bassoon-6vrjgqpjpjjhwj6-5173.app.github.dev",
         "https://jumbotron.hackclub.com",
-        "https://hacklyn.city"
+        "https://hacklyn.city",
+        "https://organic-carnival-7v5gqwr599jwcrr47-5173.app.github.dev"
     ],
     methods: [
         "POST", "GET"
